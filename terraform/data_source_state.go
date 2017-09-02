@@ -37,7 +37,7 @@ func dataSourceRemoteState() *schema.Resource {
 				Optional: true,
 			},
 
-			"environment": {
+			"workspace": {
 				Type:     schema.TypeString,
 				Optional: true,
 				Default:  backend.DefaultStateName,
@@ -80,8 +80,8 @@ func dataSourceRemoteStateRead(d *schema.ResourceData, meta interface{}) error {
 	}
 
 	// Get the state
-	env := d.Get("environment").(string)
-	state, err := b.State(env)
+	workspace := d.Get("workspace").(string)
+	state, err := b.State(workspace)
 	if err != nil {
 		return fmt.Errorf("error loading the remote state: %s", err)
 	}

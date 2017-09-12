@@ -33,7 +33,7 @@ The following arguments are supported:
 * `backend` - (Required) The remote backend to use.
 * `environment` - (Optional) The Terraform environment to use.
 * `config` - (Optional) The configuration of the remote backend.
-* `defaults` - (Optional) default output values in case state file is still empty or it does not have the output. It is in form of a map.
+* `defaults` - (Optional) default value for outputs in case state file is empty or it does not have the output.
  * Remote state config docs can be found [here](/docs/backends/types/terraform-enterprise.html)
 
 ## Attributes Reference

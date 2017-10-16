@@ -5,43 +5,40 @@ import (
 	"regexp"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go/service/directoryservice"
 	"github.com/hashicorp/terraform/helper/schema"
 )
 
 // setTags is a helper to set the tags for a resource. It expects the
 // tags field to be named "tags"
-func setTagsS3(conn *s3.S3, d *schema.ResourceData) error {
+func setTagsDS(conn *directoryservice.DirectoryService, d *schema.ResourceData, resourceId string) error {
 	if d.HasChange("tags") {
 		oraw, nraw := d.GetChange("tags")
 		o := oraw.(map[string]interface{})
 		n := nraw.(map[string]interface{})
-		create, remove := diffTagsS3(tagsFromMapS3(o), tagsFromMapS3(n))
+		create, remove := diffTagsDS(tagsFromMapDS(o), tagsFromMapDS(n))
 
 		// Set tags
 		if len(remove) > 0 {
-			log.Printf("[DEBUG] Removing tags: %#v", remove)
-			_, err := retryOnAwsCode("NoSuchBucket", func() (interface{}, error) {
-				return conn.DeleteBucketTagging(&s3.DeleteBucketTaggingInput{
-					Bucket: aws.String(d.Get("bucket").(string)),
-				})
+			log.Printf("[DEBUG] Removing tags: %s", remove)
+			k := make([]*string, len(remove), len(remove))
+			for i, t := range remove {
+				k[i] = t.Key
+			}
+
+			_, err := conn.RemoveTagsFromResource(&directoryservice.RemoveTagsFromResourceInput{
+				ResourceId: aws.String(resourceId),
+				TagKeys:    k,
 			})
 			if err != nil {
 				return err
 			}
 		}
 		if len(create) > 0 {
-			log.Printf("[DEBUG] Creating tags: %#v", create)
-			req := &s3.PutBucketTaggingInput{
-				Bucket: aws.String(d.Get("bucket").(string)),
-				Tagging: &s3.Tagging{
-					TagSet: create,
-				},
-			}
-
-			_, err := retryOnAwsCode("NoSuchBucket", func() (interface{}, error) {
-				return conn.PutBucketTagging(req)
+			log.Printf("[DEBUG] Creating tags: %s", create)
+			_, err := conn.AddTagsToResource(&directoryservice.AddTagsToResourceInput{
+				ResourceId: aws.String(resourceId),
+				Tags:       create,
 			})
 			if err != nil {
 				return err
@@ -55,7 +52,7 @@ func setTagsS3(conn *s3.S3, d *schema.ResourceData) error {
 // diffTags takes our tags locally and the ones remotely and returns
 // the set of tags that must be created, and the set of tags that must
 // be destroyed.
-func diffTagsS3(oldTags, newTags []*s3.Tag) ([]*s3.Tag, []*s3.Tag) {
+func diffTagsDS(oldTags, newTags []*directoryservice.Tag) ([]*directoryservice.Tag, []*directoryservice.Tag) {
 	// First, we're creating everything we have
 	create := make(map[string]interface{})
 	for _, t := range newTags {
@@ -63,7 +60,7 @@ func diffTagsS3(oldTags, newTags []*s3.Tag) ([]*s3.Tag, []*s3.Tag) {
 	}
 
 	// Build the list of what to remove
-	var remove []*s3.Tag
+	var remove []*directoryservice.Tag
 	for _, t := range oldTags {
 		old, ok := create[*t.Key]
 		if !ok || old != *t.Value {
@@ -72,18 +69,18 @@ func diffTagsS3(oldTags, newTags []*s3.Tag) ([]*s3.Tag, []*s3.Tag) {
 		}
 	}
 
-	return tagsFromMapS3(create), remove
+	return tagsFromMapDS(create), remove
 }
 
 // tagsFromMap returns the tags for the given map of data.
-func tagsFromMapS3(m map[string]interface{}) []*s3.Tag {
-	result := make([]*s3.Tag, 0, len(m))
+func tagsFromMapDS(m map[string]interface{}) []*directoryservice.Tag {
+	result := make([]*directoryservice.Tag, 0, len(m))
 	for k, v := range m {
-		t := &s3.Tag{
+		t := &directoryservice.Tag{
 			Key:   aws.String(k),
 			Value: aws.String(v.(string)),
 		}
-		if !tagIgnoredS3(t) {
+		if !tagIgnoredDS(t) {
 			result = append(result, t)
 		}
 	}
@@ -92,10 +89,10 @@ func tagsFromMapS3(m map[string]interface{}) []*s3.Tag {
 }
 
 // tagsToMap turns the list of tags into a map.
-func tagsToMapS3(ts []*s3.Tag) map[string]string {
+func tagsToMapDS(ts []*directoryservice.Tag) map[string]string {
 	result := make(map[string]string)
 	for _, t := range ts {
-		if !tagIgnoredS3(t) {
+		if !tagIgnoredDS(t) {
 			result[*t.Key] = *t.Value
 		}
 	}
@@ -103,28 +100,9 @@ func tagsToMapS3(ts []*s3.Tag) map[string]string {
 	return result
 }
 
-// return a slice of s3 tags associated with the given s3 bucket. Essentially
-// s3.GetBucketTagging, except returns an empty slice instead of an error when
-// there are no tags.
-func getTagSetS3(s3conn *s3.S3, bucket string) ([]*s3.Tag, error) {
-	request := &s3.GetBucketTaggingInput{
-		Bucket: aws.String(bucket),
-	}
-
-	response, err := s3conn.GetBucketTagging(request)
-	if ec2err, ok := err.(awserr.Error); ok && ec2err.Code() == "NoSuchTagSet" {
-		// There is no tag set associated with the bucket.
-		return []*s3.Tag{}, nil
-	} else if err != nil {
-		return nil, err
-	}
-
-	return response.TagSet, nil
-}
-
 // compare a tag against a list of strings and checks if it should
 // be ignored or not
-func tagIgnoredS3(t *s3.Tag) bool {
+func tagIgnoredDS(t *directoryservice.Tag) bool {
 	filter := []string{"^aws:"}
 	for _, v := range filter {
 		log.Printf("[DEBUG] Matching %v with %v\n", v, *t.Key)

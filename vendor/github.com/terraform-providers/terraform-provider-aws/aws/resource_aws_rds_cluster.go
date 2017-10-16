@@ -96,7 +96,17 @@ func resourceAwsRDSCluster() *schema.Resource {
 			},
 
 			"engine": {
+				Type:         schema.TypeString,
+				Optional:     true,
+				Default:      "aurora",
+				ForceNew:     true,
+				ValidateFunc: validateRdsEngine,
+			},
+
+			"engine_version": {
 				Type:     schema.TypeString,
+				Optional: true,
+				ForceNew: true,
 				Computed: true,
 			},
 
@@ -274,7 +284,7 @@ func resourceAwsRDSClusterCreate(d *schema.ResourceData, meta interface{}) error
 		opts := rds.RestoreDBClusterFromSnapshotInput{
 			DBClusterIdentifier: aws.String(d.Get("cluster_identifier").(string)),
 			SnapshotIdentifier:  aws.String(d.Get("snapshot_identifier").(string)),
-			Engine:              aws.String("aurora"),
+			Engine:              aws.String(d.Get("engine").(string)),
 			Tags:                tags,
 		}
 
@@ -352,7 +362,7 @@ func resourceAwsRDSClusterCreate(d *schema.ResourceData, meta interface{}) error
 	} else if _, ok := d.GetOk("replication_source_identifier"); ok {
 		createOpts := &rds.CreateDBClusterInput{
 			DBClusterIdentifier:         aws.String(d.Get("cluster_identifier").(string)),
-			Engine:                      aws.String("aurora"),
+			Engine:                      aws.String(d.Get("engine").(string)),
 			StorageEncrypted:            aws.Bool(d.Get("storage_encrypted").(bool)),
 			ReplicationSourceIdentifier: aws.String(d.Get("replication_source_identifier").(string)),
 			Tags: tags,
@@ -368,6 +378,10 @@ func resourceAwsRDSClusterCreate(d *schema.ResourceData, meta interface{}) error
 
 		if attr, ok := d.GetOk("db_cluster_parameter_group_name"); ok {
 			createOpts.DBClusterParameterGroupName = aws.String(attr.(string))
+		}
+
+		if attr, ok := d.GetOk("engine_version"); ok {
+			createOpts.EngineVersion = aws.String(attr.(string))
 		}
 
 		if attr := d.Get("vpc_security_group_ids").(*schema.Set); attr.Len() > 0 {
@@ -414,7 +428,7 @@ func resourceAwsRDSClusterCreate(d *schema.ResourceData, meta interface{}) error
 
 		createOpts := &rds.CreateDBClusterInput{
 			DBClusterIdentifier: aws.String(d.Get("cluster_identifier").(string)),
-			Engine:              aws.String("aurora"),
+			Engine:              aws.String(d.Get("engine").(string)),
 			MasterUserPassword:  aws.String(d.Get("master_password").(string)),
 			MasterUsername:      aws.String(d.Get("master_username").(string)),
 			StorageEncrypted:    aws.Bool(d.Get("storage_encrypted").(bool)),
@@ -559,6 +573,7 @@ func resourceAwsRDSClusterRead(d *schema.ResourceData, meta interface{}) error {
 	d.Set("db_cluster_parameter_group_name", dbc.DBClusterParameterGroup)
 	d.Set("endpoint", dbc.Endpoint)
 	d.Set("engine", dbc.Engine)
+	d.Set("engine_version", dbc.EngineVersion)
 	d.Set("master_username", dbc.MasterUsername)
 	d.Set("port", dbc.Port)
 	d.Set("storage_encrypted", dbc.StorageEncrypted)

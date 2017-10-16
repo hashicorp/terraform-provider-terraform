@@ -120,6 +120,13 @@
 			"versionExact": "v1.10.18"
 		},
 		{
+			"checksumSHA1": "eCvUI2T8fyTPiUYJ2OSVFSg+8Rk=",
+			"path": "github.com/aws/aws-sdk-go/aws/arn",
+			"revision": "5e436e55ac5eddc739f26a2a209b3f4248ee8e0e",
+			"version": "v1.10.18",
+			"versionExact": "v1.10.18"
+		},
+		{
 			"checksumSHA1": "Y9W+4GimK4Fuxq+vyIskVYFRnX4=",
 			"path": "github.com/aws/aws-sdk-go/aws/awserr",
 			"revision": "5e436e55ac5eddc739f26a2a209b3f4248ee8e0e",
@@ -366,6 +373,12 @@
 			"revisionTime": "2017-07-27T22:05:08Z",
 			"version": "v1.10.18",
 			"versionExact": "v1.10.18"
+		},
+		{
+			"checksumSHA1": "fNHsdfsdTzwSJwnfxqqGdkjT5HE=",
+			"path": "github.com/aws/aws-sdk-go/service/batch",
+			"revision": "8df786dd79b07878e6b6021e95b6e2417b06cbf4",
+			"revisionTime": "2017-10-13T17:55:20Z"
 		},
 		{
 			"checksumSHA1": "mWpN7HwcqV0C4uHM6+vSFZeelFo=",
@@ -1806,12 +1819,12 @@
 			"revisionTime": "2016-09-27T10:08:44Z"
 		},
 		{
-			"checksumSHA1": "UxgAKjDS6mher0PL9dw61QnPQ7w=",
+			"checksumSHA1": "5F/WW4C7oygQ2jCZIn4iOiPDCtw=",
 			"path": "github.com/terraform-providers/terraform-provider-aws/aws",
-			"revision": "4bf6f8f8134705ab3aea5451a186e85c4fb10547",
-			"revisionTime": "2017-08-08T15:30:11Z",
-			"version": "v0.1.4",
-			"versionExact": "v0.1.4"
+			"revision": "59d097d2c484f1eea3fd2dc1080abe1fb8b71815",
+			"revisionTime": "2017-09-27T09:53:28Z",
+			"version": "v1.0.0",
+			"versionExact": "v1.0.0"
 		},
 		{
 			"checksumSHA1": "R+2QkZ1uCKhGJN7Nak++jdKx59I=",

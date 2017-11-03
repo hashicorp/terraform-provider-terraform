@@ -15,7 +15,6 @@
 package clientv3
 
 import (
-	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -28,12 +27,11 @@ import (
 
 	"github.com/coreos/etcd/etcdserver/api/v3rpc/rpctypes"
 
+	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/status"
 )
 
 var (
@@ -53,17 +51,18 @@ type Client struct {
 	conn     *grpc.ClientConn
 	dialerrc chan error
 
-	cfg      Config
-	creds    *credentials.TransportCredentials
-	balancer *healthBalancer
-	mu       sync.Mutex
+	cfg              Config
+	creds            *credentials.TransportCredentials
+	balancer         *simpleBalancer
+	retryWrapper     retryRpcFunc
+	retryAuthWrapper retryRpcFunc
 
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	// Username is a user name for authentication.
+	// Username is a username for authentication
 	Username string
-	// Password is a password for authentication.
+	// Password is a password for authentication
 	Password string
 	// tokenCred is an instance of WithPerRPCCredentials()'s argument
 	tokenCred *authTokenCredential
@@ -117,10 +116,8 @@ func (c *Client) Endpoints() (eps []string) {
 
 // SetEndpoints updates client's endpoints.
 func (c *Client) SetEndpoints(eps ...string) {
-	c.mu.Lock()
 	c.cfg.Endpoints = eps
-	c.mu.Unlock()
-	c.balancer.updateAddrs(eps...)
+	c.balancer.updateAddrs(eps)
 }
 
 // Sync synchronizes client's endpoints with the known endpoints from the etcd membership.
@@ -147,10 +144,8 @@ func (c *Client) autoSync() {
 		case <-c.ctx.Done():
 			return
 		case <-time.After(c.cfg.AutoSyncInterval):
-			ctx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
-			err := c.Sync(ctx)
-			cancel()
-			if err != nil && err != c.ctx.Err() {
+			ctx, _ := context.WithTimeout(c.ctx, 5*time.Second)
+			if err := c.Sync(ctx); err != nil && err != c.ctx.Err() {
 				logger.Println("Auto sync endpoints failed:", err)
 			}
 		}
@@ -220,17 +215,10 @@ func (c *Client) dialSetupOpts(endpoint string, dopts ...grpc.DialOption) (opts 
 	if c.cfg.DialTimeout > 0 {
 		opts = []grpc.DialOption{grpc.WithTimeout(c.cfg.DialTimeout)}
 	}
-	if c.cfg.DialKeepAliveTime > 0 {
-		params := keepalive.ClientParameters{
-			Time:    c.cfg.DialKeepAliveTime,
-			Timeout: c.cfg.DialKeepAliveTimeout,
-		}
-		opts = append(opts, grpc.WithKeepaliveParams(params))
-	}
 	opts = append(opts, dopts...)
 
 	f := func(host string, t time.Duration) (net.Conn, error) {
-		proto, host, _ := parseEndpoint(c.balancer.endpoint(host))
+		proto, host, _ := parseEndpoint(c.balancer.getEndpoint(host))
 		if host == "" && endpoint != "" {
 			// dialing an endpoint not in the balancer; use
 			// endpoint passed into dial
@@ -323,7 +311,7 @@ func (c *Client) dial(endpoint string, dopts ...grpc.DialOption) (*grpc.ClientCo
 		if err != nil {
 			if toErr(ctx, err) != rpctypes.ErrAuthNotEnabled {
 				if err == ctx.Err() && ctx.Err() != c.ctx.Err() {
-					err = context.DeadlineExceeded
+					err = grpc.ErrClientConnTimeout
 				}
 				return nil, err
 			}
@@ -345,7 +333,7 @@ func (c *Client) dial(endpoint string, dopts ...grpc.DialOption) (*grpc.ClientCo
 // when the cluster has a leader.
 func WithRequireLeader(ctx context.Context) context.Context {
 	md := metadata.Pairs(rpctypes.MetadataRequireLeaderKey, rpctypes.MetadataHasLeader)
-	return metadata.NewOutgoingContext(ctx, md)
+	return metadata.NewContext(ctx, md)
 }
 
 func newClient(cfg *Config) (*Client, error) {
@@ -378,12 +366,9 @@ func newClient(cfg *Config) (*Client, error) {
 		client.Password = cfg.Password
 	}
 
-	sb := newSimpleBalancer(cfg.Endpoints)
-	hc := func(ep string) (bool, error) { return grpcHealthCheck(client, ep) }
-	client.balancer = newHealthBalancer(sb, cfg.DialTimeout, hc)
-
+	client.balancer = newSimpleBalancer(cfg.Endpoints)
 	// use Endpoints[0] so that for https:// without any tls config given, then
-	// grpc will assume the certificate server name is the endpoint host.
+	// grpc will assume the ServerName is in the endpoint.
 	conn, err := client.dial(cfg.Endpoints[0], grpc.WithBalancer(client.balancer))
 	if err != nil {
 		client.cancel()
@@ -391,19 +376,21 @@ func newClient(cfg *Config) (*Client, error) {
 		return nil, err
 	}
 	client.conn = conn
+	client.retryWrapper = client.newRetryWrapper()
+	client.retryAuthWrapper = client.newAuthRetryWrapper()
 
 	// wait for a connection
 	if cfg.DialTimeout > 0 {
 		hasConn := false
 		waitc := time.After(cfg.DialTimeout)
 		select {
-		case <-client.balancer.ready():
+		case <-client.balancer.readyc:
 			hasConn = true
 		case <-ctx.Done():
 		case <-waitc:
 		}
 		if !hasConn {
-			err := context.DeadlineExceeded
+			err := grpc.ErrClientConnTimeout
 			select {
 			case err = <-client.dialerrc:
 			default:
@@ -438,7 +425,7 @@ func (c *Client) checkVersion() (err error) {
 	errc := make(chan error, len(c.cfg.Endpoints))
 	ctx, cancel := context.WithCancel(c.ctx)
 	if c.cfg.DialTimeout > 0 {
-		ctx, cancel = context.WithTimeout(ctx, c.cfg.DialTimeout)
+		ctx, _ = context.WithTimeout(ctx, c.cfg.DialTimeout)
 	}
 	wg.Add(len(c.cfg.Endpoints))
 	for _, ep := range c.cfg.Endpoints {
@@ -453,7 +440,7 @@ func (c *Client) checkVersion() (err error) {
 			vs := strings.Split(resp.Version, ".")
 			maj, min := 0, 0
 			if len(vs) >= 2 {
-				maj, _ = strconv.Atoi(vs[0])
+				maj, rerr = strconv.Atoi(vs[0])
 				min, rerr = strconv.Atoi(vs[1])
 			}
 			if maj < 3 || (maj == 3 && min < 2) {
@@ -485,14 +472,14 @@ func isHaltErr(ctx context.Context, err error) bool {
 	if err == nil {
 		return false
 	}
-	ev, _ := status.FromError(err)
+	code := grpc.Code(err)
 	// Unavailable codes mean the system will be right back.
 	// (e.g., can't connect, lost leader)
 	// Treat Internal codes as if something failed, leaving the
 	// system in an inconsistent state, but retrying could make progress.
 	// (e.g., failed in middle of send, corrupted frame)
 	// TODO: are permanent Internal errors possible from grpc?
-	return ev.Code() != codes.Unavailable && ev.Code() != codes.Internal
+	return code != codes.Unavailable && code != codes.Internal
 }
 
 func toErr(ctx context.Context, err error) error {
@@ -503,8 +490,7 @@ func toErr(ctx context.Context, err error) error {
 	if _, ok := err.(rpctypes.EtcdError); ok {
 		return err
 	}
-	ev, _ := status.FromError(err)
-	code := ev.Code()
+	code := grpc.Code(err)
 	switch code {
 	case codes.DeadlineExceeded:
 		fallthrough
@@ -513,6 +499,7 @@ func toErr(ctx context.Context, err error) error {
 			err = ctx.Err()
 		}
 	case codes.Unavailable:
+		err = ErrNoAvailableEndpoints
 	case codes.FailedPrecondition:
 		err = grpc.ErrClientConnClosing
 	}

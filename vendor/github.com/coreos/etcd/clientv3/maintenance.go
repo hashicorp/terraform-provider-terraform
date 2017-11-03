@@ -15,10 +15,12 @@
 package clientv3
 
 import (
-	"context"
 	"io"
 
 	pb "github.com/coreos/etcd/etcdserver/etcdserverpb"
+
+	"golang.org/x/net/context"
+	"google.golang.org/grpc"
 )
 
 type (
@@ -26,8 +28,6 @@ type (
 	AlarmResponse      pb.AlarmResponse
 	AlarmMember        pb.AlarmMember
 	StatusResponse     pb.StatusResponse
-	HashKVResponse     pb.HashKVResponse
-	MoveLeaderResponse pb.MoveLeaderResponse
 )
 
 type Maintenance interface {
@@ -37,7 +37,7 @@ type Maintenance interface {
 	// AlarmDisarm disarms a given alarm.
 	AlarmDisarm(ctx context.Context, m *AlarmMember) (*AlarmResponse, error)
 
-	// Defragment releases wasted space from internal fragmentation on a given etcd member.
+	// Defragment defragments storage backend of the etcd member with given endpoint.
 	// Defragment is only needed when deleting a large number of keys and want to reclaim
 	// the resources.
 	// Defragment is an expensive operation. User should avoid defragmenting multiple members
@@ -49,17 +49,8 @@ type Maintenance interface {
 	// Status gets the status of the endpoint.
 	Status(ctx context.Context, endpoint string) (*StatusResponse, error)
 
-	// HashKV returns a hash of the KV state at the time of the RPC.
-	// If revision is zero, the hash is computed on all keys. If the revision
-	// is non-zero, the hash is computed on all keys at or below the given revision.
-	HashKV(ctx context.Context, endpoint string, rev int64) (*HashKVResponse, error)
-
-	// Snapshot provides a reader for a point-in-time snapshot of etcd.
+	// Snapshot provides a reader for a snapshot of a backend.
 	Snapshot(ctx context.Context) (io.ReadCloser, error)
-
-	// MoveLeader requests current leader to transfer its leadership to the transferee.
-	// Request must be made to the leader.
-	MoveLeader(ctx context.Context, transfereeID uint64) (*MoveLeaderResponse, error)
 }
 
 type maintenance struct {
@@ -75,9 +66,9 @@ func NewMaintenance(c *Client) Maintenance {
 				return nil, nil, err
 			}
 			cancel := func() { conn.Close() }
-			return RetryMaintenanceClient(c, conn), cancel, nil
+			return pb.NewMaintenanceClient(conn), cancel, nil
 		},
-		remote: RetryMaintenanceClient(c, c.conn),
+		remote: pb.NewMaintenanceClient(c.conn),
 	}
 }
 
@@ -96,11 +87,15 @@ func (m *maintenance) AlarmList(ctx context.Context) (*AlarmResponse, error) {
 		MemberID: 0,                 // all
 		Alarm:    pb.AlarmType_NONE, // all
 	}
-	resp, err := m.remote.Alarm(ctx, req)
-	if err == nil {
-		return (*AlarmResponse)(resp), nil
+	for {
+		resp, err := m.remote.Alarm(ctx, req, grpc.FailFast(false))
+		if err == nil {
+			return (*AlarmResponse)(resp), nil
+		}
+		if isHaltErr(ctx, err) {
+			return nil, toErr(ctx, err)
+		}
 	}
-	return nil, toErr(ctx, err)
 }
 
 func (m *maintenance) AlarmDisarm(ctx context.Context, am *AlarmMember) (*AlarmResponse, error) {
@@ -126,7 +121,7 @@ func (m *maintenance) AlarmDisarm(ctx context.Context, am *AlarmMember) (*AlarmR
 		return &ret, nil
 	}
 
-	resp, err := m.remote.Alarm(ctx, req)
+	resp, err := m.remote.Alarm(ctx, req, grpc.FailFast(false))
 	if err == nil {
 		return (*AlarmResponse)(resp), nil
 	}
@@ -139,7 +134,7 @@ func (m *maintenance) Defragment(ctx context.Context, endpoint string) (*Defragm
 		return nil, toErr(ctx, err)
 	}
 	defer cancel()
-	resp, err := remote.Defragment(ctx, &pb.DefragmentRequest{})
+	resp, err := remote.Defragment(ctx, &pb.DefragmentRequest{}, grpc.FailFast(false))
 	if err != nil {
 		return nil, toErr(ctx, err)
 	}
@@ -152,28 +147,15 @@ func (m *maintenance) Status(ctx context.Context, endpoint string) (*StatusRespo
 		return nil, toErr(ctx, err)
 	}
 	defer cancel()
-	resp, err := remote.Status(ctx, &pb.StatusRequest{})
+	resp, err := remote.Status(ctx, &pb.StatusRequest{}, grpc.FailFast(false))
 	if err != nil {
 		return nil, toErr(ctx, err)
 	}
 	return (*StatusResponse)(resp), nil
 }
 
-func (m *maintenance) HashKV(ctx context.Context, endpoint string, rev int64) (*HashKVResponse, error) {
-	remote, cancel, err := m.dial(endpoint)
-	if err != nil {
-		return nil, toErr(ctx, err)
-	}
-	defer cancel()
-	resp, err := remote.HashKV(ctx, &pb.HashKVRequest{Revision: rev})
-	if err != nil {
-		return nil, toErr(ctx, err)
-	}
-	return (*HashKVResponse)(resp), nil
-}
-
 func (m *maintenance) Snapshot(ctx context.Context) (io.ReadCloser, error) {
-	ss, err := m.remote.Snapshot(ctx, &pb.SnapshotRequest{})
+	ss, err := m.remote.Snapshot(ctx, &pb.SnapshotRequest{}, grpc.FailFast(false))
 	if err != nil {
 		return nil, toErr(ctx, err)
 	}
@@ -197,9 +179,4 @@ func (m *maintenance) Snapshot(ctx context.Context) (io.ReadCloser, error) {
 		pw.Close()
 	}()
 	return pr, nil
-}
-
-func (m *maintenance) MoveLeader(ctx context.Context, transfereeID uint64) (*MoveLeaderResponse, error) {
-	resp, err := m.remote.MoveLeader(ctx, &pb.MoveLeaderRequest{TargetID: transfereeID})
-	return (*MoveLeaderResponse)(resp), toErr(ctx, err)
 }

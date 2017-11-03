@@ -2313,11 +2313,6 @@
 			"revisionTime": "2017-08-09T21:16:03Z"
 		},
 		{
-			"path": "google.golang.org/grpc/..",
-			"revision": "7657092a1303cc5a6fa3fee988d57c665683a4da",
-			"version": "7657092a1303cc5a6fa3fee988d57c665683a4da"
-		},
-		{
 			"checksumSHA1": "08icuA15HRkdYCt6H+Cs90RPQsY=",
 			"path": "google.golang.org/grpc/codes",
 			"revision": "50955793b0183f9de69bd78e2ec251cf20aab121",

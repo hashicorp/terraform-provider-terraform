@@ -1,6 +1,6 @@
-## 1.0.2 (Unreleased)
+## 1.0.2 (November 03, 2017)
 
-* Updated the vendorered Libraries to match Terraform Core v0.10.8 (fixes a bug in v1.0.1) [GH-18]
+* Updated the vendorered Libraries to match Terraform Core v0.10.8 (fixes a bug in v1.0.1) ([#18](https://github.com/terraform-providers/terraform-provider-terraform/issues/18))
 
 ## 1.0.1 (October 25, 2017)
 

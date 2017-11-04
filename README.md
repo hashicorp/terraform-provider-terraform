@@ -1,11 +1,11 @@
-Terraform Provider
-==================
+terraform-provider-terraform
+============================
 
-- Website: https://www.terraform.io
-- [![Gitter chat](https://badges.gitter.im/hashicorp-terraform/Lobby.png)](https://gitter.im/hashicorp-terraform/Lobby)
-- Mailing list: [Google Groups](http://groups.google.com/group/terraform-tool)
+This repository contains a separated version of [the `terraform` provider](https://www.terraform.io/docs/providers/terraform/index.html) that can be used with 0.10.x releases of Terraform Core.
 
-<img src="https://cdn.rawgit.com/hashicorp/terraform-website/master/content/source/assets/images/logo-hashicorp.svg" width="600px">
+Prior to 0.10, and from 0.11 onwards, this provider is [an integrated part of Terraform Core](https://github.com/hashicorp/terraform/tree/master/builtin/providers/terraform) and no longer packaged as a provider plugin.
+
+No further development of this provider will occur in this repository, with future changes instead being made in the Terraform Core repository. Please do not open new issues or pull requests against this repository: instead, open them in [the Terraform Core repository](https://github.com/hashicorp/terraform).
 
 Requirements
 ------------
@@ -28,36 +28,4 @@ Enter the provider directory and build the provider
 ```sh
 $ cd $GOPATH/src/github.com/hashicorp/terraform-provider-$PROVIDER_NAME
 $ make build
-```
-
-Using the provider
-----------------------
-## Fill in for each provider
-
-Developing the Provider
----------------------------
-
-If you wish to work on the provider, you'll first need [Go](http://www.golang.org) installed on your machine (version 1.8+ is *required*). You'll also need to correctly setup a [GOPATH](http://golang.org/doc/code.html#GOPATH), as well as adding `$GOPATH/bin` to your `$PATH`.
-
-To compile the provider, run `make build`. This will build the provider and put the provider binary in the `$GOPATH/bin` directory.
-
-```sh
-$ make bin
-...
-$ $GOPATH/bin/terraform-provider-$PROVIDER_NAME
-...
-```
-
-In order to test the provider, you can simply run `make test`.
-
-```sh
-$ make test
-```
-
-In order to run the full suite of Acceptance tests, run `make testacc`.
-
-*Note:* Acceptance tests create real resources, and often cost money to run.
-
-```sh
-$ make testacc
 ```
